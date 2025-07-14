@@ -1,0 +1,100 @@
+{
+  "tasks": {
+    "1752480551650": {
+      "id": "1752480551650",
+      "columnId": "archive",
+      "customerName": "greegr",
+      "representative": "ergregreg",
+      "orderDate": "ergegrreg",
+      "notes": "ergregreg",
+      "taskFolderPath": "/storage/tasks/1752480551650",
+      "files": [
+        "da_14_010579.dwg",
+        "da_14_010592.stp"
+      ]
+    },
+    "1752480558484": {
+      "id": "1752480558484",
+      "columnId": "approval",
+      "customerName": "egrgrereg",
+      "representative": "ergergegr",
+      "orderDate": "ergregerg",
+      "notes": "ergregegr",
+      "taskFolderPath": "/storage/tasks/1752480558484",
+      "files": [
+        "_E6_89_8B_E6_9D_BF_E6_8A_A5_E4_BB_B7_2025_06_11__5_.xlsx",
+        "da_14_010578.stp"
+      ]
+    },
+    "1752482910581": {
+      "id": "1752482910581",
+      "columnId": "sheet",
+      "customerName": "ergrge",
+      "representative": "ergrge",
+      "orderDate": "geregr",
+      "notes": "geregr",
+      "taskFolderPath": "/storage/tasks/1752482910581",
+      "files": [
+        "ChatGPT_Image_Apr_13__2025__12_10_06_AM.png",
+        "_E6_89_8B_E6_9D_BF_E6_8A_A5_E4_BB_B7_2025_06_11__1_.xlsx",
+        "_E6_89_8B_E6_9D_BF_E6_8A_A5_E4_BB_B7_2025_06_11__6_.xlsx"
+      ]
+    },
+    "1752486166926": {
+      "id": "1752486166926",
+      "columnId": "sheet",
+      "customerName": "erregreg",
+      "representative": "gerregegr",
+      "orderDate": "egrergerg",
+      "notes": "regergreg",
+      "taskFolderPath": "/storage/tasks/1752486166926",
+      "files": [
+        "_E6_89_8B_E6_9D_BF_E6_8A_A5_E4_BB_B7_2025_06_11__4__2.xlsx"
+      ]
+    }
+  },
+  "columns": [
+    {
+      "id": "create",
+      "title": "建单",
+      "taskIds": []
+    },
+    {
+      "id": "quote",
+      "title": "报价",
+      "taskIds": []
+    },
+    {
+      "id": "send",
+      "title": "发出",
+      "taskIds": []
+    },
+    {
+      "id": "archive",
+      "title": "存档",
+      "taskIds": [
+        "1752480551650"
+      ]
+    },
+    {
+      "id": "sheet",
+      "title": "制单",
+      "taskIds": [
+        "1752482910581",
+        "1752486166926"
+      ]
+    },
+    {
+      "id": "approval",
+      "title": "审批",
+      "taskIds": [
+        "1752480558484"
+      ]
+    },
+    {
+      "id": "production",
+      "title": "投产",
+      "taskIds": []
+    }
+  ]
+}
