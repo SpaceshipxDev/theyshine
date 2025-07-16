@@ -1,32 +1,26 @@
-// file: components/KanbanDrawer.tsx
 "use client";
 
 import type { Task } from "@/types";
 import type React from "react";
-import { X, Plus, FileText, Download, CalendarDays, MessageSquare, UploadCloud, Loader2 } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+import { X, FileText, Download, CalendarDays, MessageSquare, Plus, Loader2, Trash2 } from "lucide-react";
 
 interface KanbanDrawerProps {
   isOpen: boolean;
   task: Task | null;
   columnTitle: string | null;
   onClose: () => void;
-  onUpload: (files: FileList | null) => void;
-  onOpenZip: () => void;
-  fileInputRef: React.RefObject<HTMLInputElement>;
-  isDraggingOver: boolean;
-  isUploading: boolean;
+  onTaskUpdated: (updatedTask: Task) => void;
 }
 
-// A more robust shortening function for long filenames
-const shorten = (name: string, maxLength = 35) => {
+const truncateFilename = (name: string, maxLength = 25) => {
   if (name.length <= maxLength) return name;
   const extMatch = name.match(/\.[^./]+$/);
   const ext = extMatch ? extMatch[0] : "";
   const core = name.replace(ext, "");
-  // Leave space for '...' and the extension
-  const coreMaxLength = maxLength - ext.length - 3;
-  if (coreMaxLength <= 5) return name; // Not worth shortening
-  return `${core.slice(0, coreMaxLength)}...${ext}`;
+  const coreMaxLength = maxLength - ext.length - 1;
+  if (coreMaxLength <= 3) return name;
+  return `${core.slice(0, coreMaxLength)}…${ext}`;
 };
 
 export default function KanbanDrawer({
@@ -34,151 +28,240 @@ export default function KanbanDrawer({
   task,
   columnTitle,
   onClose,
-  onUpload,
-  onOpenZip,
-  fileInputRef,
-  isDraggingOver,
-  isUploading,
+  onTaskUpdated,
 }: KanbanDrawerProps) {
-  // This is the "closed" state placeholder for the animation
+  // --- Internal state for API calls and UI feedback ---
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isZipping, setIsZipping] = useState(false);
+  const [updatingFile, setUpdatingFile] = useState<string | null>(null);
+  const [deletingFile, setDeletingFile] = useState<string | null>(null); // New state for delete
+
+  // --- Internal refs for file inputs ---
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const updateFileInputRef = useRef<HTMLInputElement>(null);
+  const fileToUpdateRef = useRef<string | null>(null);
+
+  // --- API Call: Upload new files ---
+  const handleFileUpload = useCallback(async (files: FileList | null) => {
+    if (!task || !files || files.length === 0) return;
+    setIsUploading(true);
+    const formData = new FormData();
+    Array.from(files).forEach((file) => formData.append("files", file));
+    try {
+      const res = await fetch(`/api/jobs/${task.id}/upload`, { method: "POST", body: formData });
+      if (!res.ok) throw new Error("File upload failed");
+      const updatedTask = await res.json();
+      onTaskUpdated(updatedTask);
+    } catch (error) {
+      console.error("Upload failed:", error);
+    } finally {
+      setIsUploading(false);
+    }
+  }, [task, onTaskUpdated]);
+
+  // --- API Call: Update a single existing file ---
+  const handleFileUpdate = useCallback(async (newFile: File, oldFilename: string) => {
+    if (!task) return;
+    setUpdatingFile(oldFilename);
+    const formData = new FormData();
+    formData.append("newFile", newFile);
+    formData.append("oldFilename", oldFilename);
+    try {
+      const res = await fetch(`/api/jobs/${task.id}/update-file`, { method: "POST", body: formData });
+      if (!res.ok) throw new Error(await res.json().then(e => e.error || "File update failed"));
+      const updatedTask = await res.json();
+      onTaskUpdated(updatedTask);
+    } catch (error) {
+      console.error("Update failed:", error);
+    } finally {
+      setUpdatingFile(null);
+    }
+  }, [task, onTaskUpdated]);
+
+  // --- NEW API Call: Delete a single file ---
+  const handleFileDelete = useCallback(async (filename: string) => {
+    if (!task) return;
+    
+    // Confirmation prompt
+    const isConfirmed = window.confirm(`你确定要删除文件 "${filename}" 吗？此操作无法撤销。`);
+    if (!isConfirmed) return;
+
+    setDeletingFile(filename);
+    try {
+      const res = await fetch(`/api/jobs/${task.id}/delete-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename }),
+      });
+      if (!res.ok) throw new Error(await res.json().then(e => e.error || "File deletion failed"));
+      const updatedTask = await res.json();
+      onTaskUpdated(updatedTask);
+    } catch (error) {
+      console.error("Deletion failed:", error);
+    } finally {
+      setDeletingFile(null);
+    }
+  }, [task, onTaskUpdated]);
+
+  // --- API Call: Download all files as a zip ---
+  const handleDownloadZip = useCallback(async () => {
+    if (!task || isZipping) return;
+    setIsZipping(true);
+    try {
+      const res = await fetch(`/api/jobs/${task.id}/zip`);
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `压缩包-${task.id}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download failed:", error);
+    } finally {
+      setIsZipping(false);
+    }
+  }, [task, isZipping]);
+
+  // --- UI Handlers ---
+  const handleUpdateClick = (filename: string) => {
+    fileToUpdateRef.current = filename;
+    updateFileInputRef.current?.click();
+  };
+
+  const handleFileUpdateSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newFile = e.target.files?.[0];
+    const oldFilename = fileToUpdateRef.current;
+    if (newFile && oldFilename) {
+      handleFileUpdate(newFile, oldFilename);
+    }
+    if (e.target) e.target.value = "";
+  };
+  
   if (!task) {
     return (
-      <aside className="fixed inset-y-0 right-0 w-[420px] translate-x-full pointer-events-none transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]" />
+      <aside className="fixed inset-y-0 right-0 w-[400px] translate-x-full pointer-events-none transition-transform duration-400 ease-[cubic-bezier(0.32,0.72,0,1)]" />
     );
   }
-
+  
   const files = task.files || [];
 
   return (
-    // MAIN CONTAINER: Glassy, with a stronger shadow for depth.
     <aside
-      className={`fixed inset-y-0 right-0 w-[420px] bg-white/80 backdrop-blur-2xl border-l border-gray-200/80 
-                 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] z-50 flex flex-col
-                 ${isOpen ? "translate-x-0 shadow-2xl shadow-black/10" : "translate-x-full"}`}
+      className={`fixed inset-y-0 right-0 w-[400px] bg-white/95 backdrop-blur-xl border-l border-black/[0.08] 
+                 transition-transform duration-400 ease-[cubic-bezier(0.32,0.72,0,1)] z-50 flex flex-col
+                 ${isOpen ? "translate-x-0 shadow-[0_8px_64px_0_rgba(0,0,0,0.25)]" : "translate-x-full"}`}
       onClick={(e) => e.stopPropagation()}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(true); }}
+      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(false); }}
+      onDrop={(e) => {
+        e.preventDefault(); e.stopPropagation(); setIsDraggingOver(false);
+        handleFileUpload(e.dataTransfer.files);
+      }}
     >
-      {/* HEADER: Cleaner typography, better spacing, and a more prominent close button. */}
-      <div className="flex-shrink-0 px-6 pt-8 pb-6 flex items-start justify-between border-b border-black/5">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight truncate">
-            {task.customerName}
-          </h1>
-          <div className="flex items-center gap-3 mt-2">
-            <p className="text-sm text-gray-600 truncate">{task.representative}</p>
+      <div className="flex-shrink-0 px-6 pt-6 pb-0 flex items-start justify-between">
+        <div className="flex-1 min-w-0 pr-4">
+          <h1 className="text-xl font-semibold text-black tracking-tight truncate -mb-0.5">{task.customerName}</h1>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-[15px] text-black/60 truncate">{task.representative}</p>
             {columnTitle && (
               <>
-                <span className="text-gray-300">·</span>
-                <span className="text-xs font-medium text-gray-500 bg-gray-100/80 px-2.5 py-1 rounded-full border border-gray-200/80">
-                  {columnTitle}
-                </span>
+                <span className="text-black/30 text-sm">·</span>
+                <span className="text-[13px] font-medium text-black/50 bg-black/5 px-2 py-0.5 rounded-full">{columnTitle}</span>
               </>
             )}
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="ml-4 flex-shrink-0 h-9 w-9 flex items-center justify-center rounded-full bg-gray-500/10 hover:bg-gray-500/20 transition-colors"
-        >
-          <X className="h-5 w-5 text-gray-600" />
+        <button onClick={onClose} className="flex-shrink-0 h-8 w-8 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition-colors duration-200">
+          <X className="h-4 w-4 text-black/60" />
         </button>
       </div>
 
-      {/* CONTENT SCROLL AREA */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-8">
-        
-        {/* DETAILS SECTION: Structured like cards, with icons for scannability. */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-4 p-4 bg-gray-50/80 rounded-2xl border border-gray-200/60">
-            <CalendarDays className="h-5 w-5 text-gray-500 flex-shrink-0" />
-            <div className="flex-1 flex justify-between items-center">
-              <span className="text-sm text-gray-600">订单日期</span>
-              <span className="text-sm font-semibold text-gray-800">{task.orderDate}</span>
-            </div>
+      <div className="flex-1 overflow-y-auto px-6 pt-6 pb-6">
+        <div className="space-y-3 mb-8">
+          <div className="flex items-center justify-between py-3 border-b border-black/[0.08]">
+            <div className="flex items-center gap-3"><CalendarDays className="h-4 w-4 text-black/40" /><span className="text-[15px] text-black/60">订单日期</span></div>
+            <span className="text-[15px] font-medium text-black">{task.orderDate}</span>
           </div>
           {task.notes && (
-            <div className="flex items-start gap-4 p-4 bg-gray-50/80 rounded-2xl border border-gray-200/60">
-              <MessageSquare className="h-5 w-5 text-gray-500 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <span className="text-sm text-gray-600 block mb-1">备注</span>
-                <p className="text-sm text-gray-800 leading-relaxed">{task.notes}</p>
-              </div>
+            <div className="py-3 border-b border-black/[0.08]">
+              <div className="flex items-center gap-3 mb-2"><MessageSquare className="h-4 w-4 text-black/40" /><span className="text-[15px] text-black/60">备注</span></div>
+              <p className="text-[15px] text-black leading-relaxed ml-7">{task.notes}</p>
             </div>
           )}
         </div>
 
-        {/* FILES SECTION: Modernized file list and upload area. */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-gray-800">文件</h2>
-            {/* FIX: Changed from files.length > 1 to files.length > 0 */}
+        <div className="space-y-4">
+          <h3 className="text-[17px] font-medium text-black">项目文件</h3>
+          
+          {files.length > 0 && (
+            <div className="bg-black/[0.02] rounded-2xl p-4 space-y-2">
+              {files.map((name) => (
+                <div key={name} className="flex items-center gap-3 p-2 rounded-lg hover:bg-black/[0.04] transition-colors duration-150 group">
+                  <FileText className="h-4 w-4 text-black/40 flex-shrink-0" />
+                  <span className="text-[14px] text-black/70 truncate flex-1" title={name}>{truncateFilename(name)}</span>
+                  <div className="flex items-center justify-end gap-2 w-24 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {updatingFile === name || deletingFile === name ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-black/50" />
+                    ) : (
+                      <>
+                        <button onClick={() => handleUpdateClick(name)} className="text-[13px] font-medium text-blue-600 hover:text-blue-500">更新</button>
+                        <button onClick={() => handleFileDelete(name)} className="text-[13px] font-medium text-red-600 hover:text-red-500">删除</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Action buttons... */}
+          <div className="space-y-3">
             {files.length > 0 && (
-              <button
-                onClick={onOpenZip}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200/70 hover:text-gray-800 transition-all"
-              >
-                <Download className="h-4 w-4" />
-                <span className="text-xs font-medium">打开</span>
+              <button onClick={handleDownloadZip} disabled={isZipping} className="w-full flex items-center gap-4 p-4 bg-blue-500/8 hover:bg-blue-500/12 rounded-2xl transition-all duration-200 group disabled:opacity-50 disabled:cursor-wait">
+                <div className="flex items-center justify-center h-10 w-10 rounded-full bg-blue-500/15 group-hover:bg-blue-500/20 transition-colors duration-200">
+                  {isZipping ? <Loader2 className="h-5 w-5 text-blue-600 animate-spin" /> : <Download className="h-5 w-5 text-blue-600" />}
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-[15px] font-medium text-black">下载所有文件</p>
+                  <p className="text-[13px] text-black/50">{isZipping ? '正在压缩...' : '获取压缩包进行本地处理'}</p>
+                </div>
               </button>
             )}
-          </div>
 
-          <div className="relative space-y-3">
-            {isUploading && (
-              <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex items-center justify-center rounded-2xl z-10">
-                 <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
-              </div>
-            )}
-            
-            {files.map((name) => (
-              <div
-                key={name}
-                className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-gray-200/80 shadow-sm"
-              >
-                <div className="w-9 h-9 flex items-center justify-center rounded-lg bg-blue-100/70 flex-shrink-0">
-                  <FileText className="h-5 w-5 text-blue-600" />
+            <div className="relative">
+              {isUploading && (
+                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center rounded-2xl z-10">
+                  <div className="flex items-center gap-2"><Loader2 className="h-5 w-5 text-black/60 animate-spin" /><span className="text-[15px] text-black/60">上传中...</span></div>
                 </div>
-                <span className="text-sm font-medium text-gray-800 truncate flex-1" title={name}>
-                  {shorten(name)}
-                </span>
-              </div>
-            ))}
-
-            {/* UPLOAD AREA: Replaces dashed border with a more inviting, solid component. */}
-            <label
-              htmlFor="drawer-file-upload"
-              className={`flex flex-col items-center justify-center p-6 cursor-pointer rounded-2xl transition-all duration-200
-                          ${isDraggingOver
-                            ? "bg-blue-50 border-blue-500 ring-4 ring-blue-500/20"
-                            : "bg-gray-50/80 border border-gray-200/60 hover:border-gray-300"
-                          }`}
-            >
-              <div className={`flex items-center justify-center h-12 w-12 rounded-full mb-3 transition-colors ${isDraggingOver ? 'bg-blue-100' : 'bg-gray-200/70'}`}>
-                <UploadCloud className={`h-6 w-6 transition-colors ${isDraggingOver ? 'text-blue-600' : 'text-gray-500'}`} />
-              </div>
-              <p className="text-sm font-semibold text-gray-700 mb-1">上传文件</p>
-            </label>
-            <input
-              id="drawer-file-upload"
-              type="file"
-              multiple
-              ref={fileInputRef}
-              className="hidden"
-              onChange={(e) => onUpload(e.target.files)}
-            />
+              )}
+              <label htmlFor="drawer-file-upload" className={`block w-full p-5 cursor-pointer rounded-2xl transition-all duration-200 border-2 border-dashed group ${
+                isDraggingOver ? "bg-green-50/80 border-green-400/60 ring-4 ring-green-500/10" : files.length > 0 ? "bg-black/[0.02] border-black/10 hover:bg-black/[0.04] hover:border-black/20" : "bg-blue-50/50 border-blue-200/60 hover:bg-blue-50/80 hover:border-blue-300/80"
+              }`}>
+                <div className="flex items-center gap-4">
+                  <div className={`flex items-center justify-center h-10 w-10 rounded-full transition-colors duration-200 ${
+                    isDraggingOver ? 'bg-green-500/15' : files.length > 0 ? 'bg-black/8 group-hover:bg-black/12' : 'bg-blue-500/15 group-hover:bg-blue-500/20'
+                  }`}>
+                    <Plus className={`h-5 w-5 transition-colors duration-200 ${
+                      isDraggingOver ? 'text-green-600' : files.length > 0 ? 'text-black/60' : 'text-blue-600'
+                    }`} />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="text-[15px] font-medium text-black">{files.length === 0 ? "上传项目文件" : "上传更新文件"}</p>
+                    <p className="text-[13px] text-black/50">{files.length === 0 ? "拖放文件或点击选择" : "添加修改后的文件或新内容"}</p>
+                  </div>
+                </div>
+              </label>
+              <input id="drawer-file-upload" type="file" multiple ref={fileInputRef} className="hidden" onChange={(e) => handleFileUpload(e.target.files)} />
+            </div>
           </div>
         </div>
       </div>
-
-      {/* FOOTER ACTION: Button style is now consistent with CreateJobForm */}
-      <div className="flex-shrink-0 p-6 border-t border-black/5">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3 rounded-xl transition-all duration-200 shadow-sm hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 active:scale-[0.98]"
-        >
-          <Plus className="h-4 w-4" />
-          添加新文件
-        </button>
-      </div>
+      <input type="file" ref={updateFileInputRef} className="hidden" onChange={handleFileUpdateSelected} />
     </aside>
   );
 }

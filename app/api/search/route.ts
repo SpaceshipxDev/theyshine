@@ -2,13 +2,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import { GoogleGenAI } from "@google/genai";
 import type { BoardData } from "@/types";
 
 const META_FILE = path.join(process.cwd(), "public", "storage", "metadata.json");
 
-
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENAI_API_KEY });
+// --------------- helpers -----------------
 
 /** One concise line per task so the prompt stays short. */
 function serialiseTasks(tasks: BoardData["tasks"]): string {
@@ -31,21 +29,30 @@ function makePrompt(taskLines: string, query: string): string {
     ${taskLines}
 
     QUERY: ${query}
-    `.trim();
+  `.trim();
 }
 
-
-async function getMatchingIds(prompt: string): Promise<string[]> {
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-lite-preview-06-17",
-    contents: prompt,
+/** --- NEW --- call the relay instead of Google directly */
+async function getMatchingIdsViaRelay(prompt: string): Promise<string[]> {
+  const resp = await fetch(process.env.GENAI_PROXY_URL!, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ prompt }),
+    // 10 s timeout – tweak if your relay is slower
+    // @ts-ignore – Next.js fetch accepts this option even though types don’t list it
+    timeout: 10_000,
   });
-  console.log(prompt)
 
-  const raw = (response as any).text?.trim?.() ?? "";
-  console.log(raw) 
-  return raw
-    .replace(/[^\d,]/g, "") // keep digits & commas only
+  if (!resp.ok) {
+    console.error("Relay error:", resp.status, await resp.text());
+    return [];
+  }
+
+  const data = await resp.json(); // { text: "123,456,789" }
+  return (data.text as string)
+    .replace(/[^\d,]/g, "")
     .split(",")
     .filter(Boolean)
     .slice(0, 3);
@@ -63,6 +70,8 @@ function formatResults(ids: string[], data: BoardData) {
     }));
 }
 
+// --------------- route handler -----------------
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q")?.trim();
@@ -73,13 +82,13 @@ export async function GET(req: NextRequest) {
     const boardData: BoardData = JSON.parse(raw);
     if (!boardData.tasks || !boardData.columns) return NextResponse.json([]);
 
-    // 1 prepare prompt
+    // 1. prepare prompt
     const prompt = makePrompt(serialiseTasks(boardData.tasks), query);
 
-    // 2 ask Gemini for IDs
-    const ids = await getMatchingIds(prompt);
+    // 2. ask Gemini (via relay) for IDs
+    const ids = await getMatchingIdsViaRelay(prompt);
 
-    // 3 shape for UI
+    // 3. shape for UI
     return NextResponse.json(formatResults(ids, boardData));
   } catch (err) {
     console.error("AI search error:", err);

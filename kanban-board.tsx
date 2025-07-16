@@ -1,7 +1,5 @@
-// file: app/page.tsx (or wherever KanbanBoard is)
 "use client"
 
-// ... (all other imports and state remain the same)
 import type React from "react"
 import type { Task, Column, BoardData } from "@/types"
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
@@ -12,25 +10,54 @@ import { baseColumns, START_COLUMN_ID } from "@/lib/baseColumns"
 import KanbanDrawer from "@/components/KanbanDrawer"
 import SearchDialog from "@/components/SearchDialog"
 
-
 export default function KanbanBoard() {
-  // ... (all state and functions remain exactly the same up to the return statement)
   const [tasks, setTasks] = useState<Record<string, Task>>({})
   const [columns, setColumns] = useState<Column[]>(baseColumns)
-
   const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [selectedTaskColumnTitle, setSelectedTaskColumnTitle] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-  const [isDraggingOver, setIsDraggingOver] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
-  const [isZipping, setIsZipping] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null)
+  const taskRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
-  // This function ensures the UI always has the full set of columns from code,
-  // merged with the saved data (taskIds).
+  useEffect(() => {
+    if (!highlightedTaskId) return;
+
+    const node = taskRefs.current.get(highlightedTaskId);
+    const container = scrollContainerRef.current;
+    if (node && container) {
+      const containerRect = container.getBoundingClientRect();
+      const nodeRect = node.getBoundingClientRect();
+      const scrollPadding = 60; 
+
+      if (nodeRect.left < containerRect.left) {
+        container.scrollTo({
+          left: container.scrollLeft + nodeRect.left - containerRect.left - scrollPadding,
+          behavior: 'smooth',
+        });
+      } else if (nodeRect.right > containerRect.right) {
+        container.scrollTo({
+          left: container.scrollLeft + nodeRect.right - containerRect.right + scrollPadding,
+          behavior: 'smooth',
+        });
+      }
+
+      node.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+
+    const timer = setTimeout(() => {
+      setHighlightedTaskId(null);
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [highlightedTaskId]);
+
   const mergeWithSkeleton = (saved: Column[]): Column[] => {
     const savedColumnsMap = new Map(saved.map((c) => [c.id, c]));
     return baseColumns.map(
@@ -67,8 +94,8 @@ export default function KanbanBoard() {
     })();
   }, []);
 
-  const updateTaskInState = useCallback((updatedTask: Task) => {
-    // Updates are simpler: just update the task in the tasks dictionary
+  // This is the callback for the drawer. It updates the board's state.
+  const handleTaskUpdated = useCallback((updatedTask: Task) => {
     setTasks((prev) => ({
       ...prev,
       [updatedTask.id]: updatedTask,
@@ -89,44 +116,32 @@ export default function KanbanBoard() {
     setDragOverColumn(null);
     if (!draggedTask || draggedTask.columnId === targetColumnId) return;
 
-    // --- NEW LOGIC FOR FLAT DATA ---
-    // 1. Update the task's columnId in the tasks dictionary
     const nextTasks = {
       ...tasks,
       [draggedTask.id]: { ...draggedTask, columnId: targetColumnId },
     };
 
-    // 2. Update the columns' taskIds arrays
     const nextColumns = columns.map((col) => {
-      // Remove from the original column's taskIds
       if (col.id === draggedTask.columnId) {
         return {
           ...col,
           taskIds: col.taskIds.filter((id) => id !== draggedTask.id),
         };
       }
-      // Add to the new target column's taskIds
       if (col.id === targetColumnId) {
         return { ...col, taskIds: [...col.taskIds, draggedTask.id] };
       }
       return col;
     });
 
-    // 3. Update local state for an instant UI change
     setTasks(nextTasks);
     setColumns(nextColumns);
-
-    // 4. Persist the changes to the backend
     saveBoard({ tasks: nextTasks, columns: nextColumns });
-
     setDraggedTask(null);
   };
 
   const handleJobCreated = (newTask: Task) => {
-    // Add the new task to the central tasks dictionary
     setTasks((prev) => ({ ...prev, [newTask.id]: newTask }));
-
-    // Add the new task's ID to the starting column's taskIds array
     setColumns((prev) =>
       prev.map((col) =>
         col.id === START_COLUMN_ID
@@ -136,7 +151,6 @@ export default function KanbanBoard() {
     );
   };
 
-  // The task click handler is now simpler, as the task object itself has all the info
   const handleTaskClick = (task: Task, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -150,112 +164,55 @@ export default function KanbanBoard() {
 
   const closeDrawer = () => {
     setIsDrawerOpen(false);
+    // Delay clearing task to allow for smooth exit animation
     setTimeout(() => {
       setSelectedTask(null);
       setSelectedTaskColumnTitle(null);
-      setIsUploading(false);
-      setIsZipping(false);
-      setIsDraggingOver(false);
     }, 300);
   };
 
-  const handleFileChange = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const mockEvent = {
-      dataTransfer: { files },
-      preventDefault: () => {},
-      stopPropagation: () => {},
-    } as unknown as React.DragEvent;
-    handleFileDrop(mockEvent);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const handleFileDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDraggingOver(false);
-      if (!selectedTask || isUploading) return;
-      const files = Array.from(e.dataTransfer.files);
-      if (files.length === 0) return;
-      setIsUploading(true);
-      const formData = new FormData();
-      files.forEach((file) => formData.append("files", file));
-      try {
-        const res = await fetch(`/api/jobs/${selectedTask.id}/upload`, { method: "POST", body: formData });
-        if (!res.ok) throw new Error("文件上传失败");
-        const updatedTask = await res.json();
-        updateTaskInState(updatedTask); // This will update the task in the main 'tasks' state
-      } catch (error) {
-        console.error("上传失败:", error);
-      } finally {
-        setIsUploading(false);
-      }
-    },
-    [selectedTask, isUploading, updateTaskInState],
-  );
-
-  const handleDownloadZip = useCallback(async () => {
-    if (!selectedTask || isZipping) return;
-    setIsZipping(true);
-    try {
-      const res = await fetch(`/api/jobs/${selectedTask.id}/zip`);
-      if (!res.ok) throw new Error("下载失败");
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `task-${selectedTask.id}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("下载失败:", error);
-    } finally {
-      setIsZipping(false);
-    }
-  }, [selectedTask, isZipping]);
-
-  // For the search dialog, we just need a flat array of all tasks, which is easy to get now.
   const allTasksForSearch = useMemo(() => Object.values(tasks), [tasks]);
-
 
   return (
     <div className="h-screen w-full flex flex-col bg-gray-50/50">
-      {/* ... (header and other JSX remains the same) ... */}
-      <header className="px-6 py-4 bg-white/70 backdrop-blur-lg sticky top-0 z-30 border-b border-gray-200/80">
+      <header className="px-6 py-4 bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b-2 border-gray-200/60">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-gray-900">项目看板</h1>
-            <button
+          <div className="flex items-baseline gap-2">
+            <h1 className="text-xl font-medium text-gray-900 tracking-tight">Eldaline</h1>
+            <span className="text-sm text-gray-500 font-normal">项目看板</span>
+          </div>
+          
+          <button
             onClick={() => setIsSearchOpen(true)}
-            className="group relative flex items-center justify-center gap-2.5 px-4 py-2 
-                        bg-white/50 backdrop-blur-lg 
-                        border border-gray-900/10 hover:border-gray-900/20
+            className="group relative flex items-center justify-center gap-2.5 px-4 py-2.5 
+                        bg-gray-100/60 backdrop-blur-sm 
+                        border border-gray-200/60 hover:border-gray-300/80
                         rounded-full shadow-sm hover:shadow-md
-                        transform-gpu transition-all duration-300 ease-out
-                        hover:-translate-y-px active:translate-y-0 active:scale-[0.98]"
-            >
-            {/* Inner shadow/highlight for depth */}
-            <div className="absolute inset-0.5 rounded-full bg-gradient-to-b from-white/80 to-transparent opacity-60 group-hover:opacity-100 transition-opacity duration-300" />
-            
-            {/* Content (Icon and Text) */}
-            <Search className="relative h-4 w-4 text-gray-500 group-hover:text-gray-700 transition-colors duration-200" strokeWidth={2} />
-            <span className="relative text-sm font-medium text-gray-600 group-hover:text-gray-800 transition-colors duration-200">
-                查询
+                        transform-gpu transition-all duration-200 ease-out
+                        hover:bg-white/80 active:scale-[0.96]"
+          >
+            <Search className="h-4 w-4 text-gray-500 group-hover:text-gray-700 transition-colors duration-200" strokeWidth={2} />
+            <span className="text-sm font-medium text-gray-600 group-hover:text-gray-800 transition-colors duration-200">
+              搜索
             </span>
-            </button>
+            <div className="hidden sm:flex items-center gap-1 ml-2 pl-2 border-l border-gray-300/60">
+              <kbd className="px-1.5 py-0.5 text-xs font-medium text-gray-400 bg-gray-200/60 rounded border border-gray-300/40">⌘</kbd>
+              <kbd className="px-1.5 py-0.5 text-xs font-medium text-gray-400 bg-gray-200/60 rounded border border-gray-300/40">K</kbd>
+            </div>
+          </button>
         </div>
       </header>
-
-      <div className="relative flex-1 flex">
+      
+      <div className="relative flex-1 flex min-h-0">
         {isDrawerOpen && <div className="fixed inset-0 backdrop-blur-[2px] z-40" onClick={closeDrawer} />}
 
-        <div className="flex-1 flex overflow-x-auto transition-all duration-300 z-10">
+        <div 
+          ref={scrollContainerRef}
+          className="flex-1 flex gap-4 overflow-x-auto p-4 transition-all duration-300 z-10"
+        >
           <CreateJobForm onJobCreated={handleJobCreated} />
 
           {columns.map((column) => {
-            // RECONSTITUTE DATA FOR RENDERING: Get full task objects for the current column
             const columnTasks = column.taskIds.map(id => tasks[id]).filter(Boolean);
 
             return column.id === "archive" ? (
@@ -265,7 +222,7 @@ export default function KanbanBoard() {
                 onDragEnter={() => handleDragEnter(column.id)}
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, column.id)}
-                className={`flex-shrink-0 w-72 flex flex-col rounded-xl mx-2 my-4 transition-colors duration-200 ${
+                className={`flex-shrink-0 w-72 flex flex-col rounded-xl transition-colors duration-200 ${
                   dragOverColumn === column.id ? "bg-blue-100/50" : "bg-gray-100/80"
                 }`}
               >
@@ -294,18 +251,28 @@ export default function KanbanBoard() {
                       {columnTasks.map((task) => (
                         <Card
                           key={task.id}
+                          ref={(node) => {
+                            const map = taskRefs.current;
+                            if (node) map.set(task.id, node);
+                            else map.delete(task.id);
+                          }}
                           draggable
                           onDragStart={() => handleDragStart(task)}
                           onClick={(e) => handleTaskClick(task, e)}
-                          className="p-3 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transform transition-all duration-200 border border-gray-200/60 bg-white/60 group rounded-xl shadow-sm opacity-75 hover:opacity-100"
+                          className="p-3 cursor-pointer hover:shadow-lg hover:-translate-y-px transform transition-all duration-200 border border-gray-200/60 bg-white/60 group rounded-xl shadow-sm opacity-75 hover:opacity-100"
                         >
                           <div className="flex items-start gap-2">
-                            <Archive className="h-3.5 w-3.5 text-gray-400 mt-0.5 flex-shrink-0" strokeWidth={1.5} />
                             <div className="flex-1 min-w-0">
-                              <h3 className="text-sm font-medium text-gray-700 mb-1.5 leading-tight group-hover:text-gray-900 transition-colors">
-                                {`${task.customerName} - ${task.representative}`}
-                              </h3>
-                              <p className="text-xs text-gray-500 leading-relaxed">{task.orderDate}</p>
+                               <div
+                                className={`p-1 -m-1 rounded-md transition-colors duration-500
+                                  ${highlightedTaskId === task.id ? 'bg-yellow-300/80' : 'bg-transparent'}`
+                                }
+                              >
+                                <h3 className="text-sm font-medium text-gray-700 mb-1.5 leading-tight group-hover:text-gray-900 transition-colors">
+                                  {`${task.customerName} - ${task.representative}`}
+                                </h3>
+                                <p className="text-xs text-gray-500 leading-relaxed">{task.orderDate}</p>
+                              </div>
                             </div>
                           </div>
                         </Card>
@@ -321,7 +288,7 @@ export default function KanbanBoard() {
                 onDragEnter={() => handleDragEnter(column.id)}
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, column.id)}
-                className={`flex-shrink-0 w-72 flex flex-col rounded-xl mx-2 my-4 border border-gray-200/75 shadow-sm hover:shadow-md hover:-translate-y-0.5 transform-gpu transition-all duration-300 ${
+                className={`flex-shrink-0 w-72 flex flex-col rounded-xl border border-gray-200/75 shadow-sm hover:shadow-md transform-gpu transition-all duration-300 ${
                   dragOverColumn === column.id ? "bg-blue-100/50" : "bg-gray-100/80"
                 }`}
               >
@@ -337,15 +304,26 @@ export default function KanbanBoard() {
                   {columnTasks.map((task) => (
                     <Card
                       key={task.id}
+                      ref={(node) => {
+                        const map = taskRefs.current;
+                        if (node) map.set(task.id, node);
+                        else map.delete(task.id);
+                      }}
                       draggable
                       onDragStart={() => handleDragStart(task)}
                       onClick={(e) => handleTaskClick(task, e)}
-                      className="p-3 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transform transition-all duration-200 border border-gray-200/60 bg-white group rounded-xl shadow-sm"
+                      className="p-3 cursor-pointer hover:shadow-lg hover:-translate-y-px transform transition-all duration-200 border border-gray-200/60 bg-white group rounded-xl shadow-sm"
                     >
-                      <h3 className="text-sm font-medium text-gray-900 mb-1.5 leading-tight group-hover:text-blue-700 transition-colors">
-                        {`${task.customerName} - ${task.representative}`}
-                      </h3>
-                      <p className="text-xs text-gray-600 leading-relaxed">{task.orderDate}</p>
+                      <div
+                        className={`p-1 -m-1 rounded-md transition-colors duration-500
+                          ${highlightedTaskId === task.id ? 'bg-yellow-300/80' : 'bg-transparent'}`
+                        }
+                      >
+                        <h3 className="text-sm font-medium text-gray-900 mb-1.5 leading-tight group-hover:text-blue-700 transition-colors">
+                          {`${task.customerName} - ${task.representative}`}
+                        </h3>
+                        <p className="text-xs text-gray-600 leading-relaxed">{task.orderDate}</p>
+                      </div>
                     </Card>
                   ))}
                 </div>
@@ -354,17 +332,11 @@ export default function KanbanBoard() {
           })}
         </div>
         
-        {/* MODIFICATION: The SearchDialog no longer needs the 'tasks' prop */}
         <SearchDialog
           isOpen={isSearchOpen}
           onClose={() => setIsSearchOpen(false)}
           onTaskSelect={(task) => {
-            // This logic remains the same. The dialog now provides the full task object.
-            const column = columns.find((c) => c.id === task.columnId);
-            setSelectedTaskColumnTitle(column ? column.title : null);
-            setSelectedTask(task);
-            setIsDrawerOpen(true);
-            // The dialog now handles closing itself upon selection.
+            setHighlightedTaskId(task.id);
           }}
         />
 
@@ -373,11 +345,7 @@ export default function KanbanBoard() {
           task={selectedTask}
           columnTitle={selectedTaskColumnTitle}
           onClose={closeDrawer}
-          onUpload={handleFileChange}
-          onOpenZip={handleDownloadZip}
-          fileInputRef={fileInputRef}
-          isDraggingOver={isDraggingOver}
-          isUploading={isUploading}
+          onTaskUpdated={handleTaskUpdated}
         />
       </div>
     </div>

@@ -1,4 +1,4 @@
-// api/jobs/route.ts
+// file: api/jobs/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
@@ -17,70 +17,84 @@ async function getBoardData(): Promise<BoardData> {
   try {
     const raw = await fs.readFile(META_FILE, "utf-8");
     const data = JSON.parse(raw);
-    // Basic validation
-    if (data.tasks && data.columns) {
-      return data;
-    }
+    if (data.tasks && data.columns) return data;
     throw new Error("Invalid metadata format");
   } catch {
-    // If file doesn't exist or is invalid, return a fresh board structure
-    return {
-      tasks: {},
-      columns: baseColumns,
-    };
+    return { tasks: {}, columns: baseColumns };
   }
 }
 
-// GET: Returns the entire board data object
+// GET: Returns the entire board data object (no changes)
 export async function GET() {
   const boardData = await getBoardData();
   return NextResponse.json(boardData);
 }
 
-// POST: Creates a new job
+// POST: Creates a new job with folder support
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
-    const file = formData.get("file") as File;
+    
+    // LOGIC CHANGE: Get all files and their relative paths
+    const files = formData.getAll("files") as File[];
+    const filePaths = formData.getAll("filePaths") as string[];
+    
     const customerName = formData.get("customerName") as string;
     const representative = formData.get("representative") as string;
     const orderDate = formData.get("orderDate") as string;
     const notes = formData.get("notes") as string;
 
-    if (!file || !customerName || !representative || !orderDate) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    if (files.length === 0 || !customerName || !representative || !orderDate) {
+      return NextResponse.json(
+        { error: "Missing required fields or folder" },
+        { status: 400 }
+      );
     }
 
     const taskId = Date.now().toString();
     const taskDirectoryPath = path.join(TASKS_STORAGE_DIR, taskId);
     await fs.mkdir(taskDirectoryPath, { recursive: true });
 
-    const buf = Buffer.from(await file.arrayBuffer());
-    const originalFilename = file.name.replace(/[^\w.]/g, "_");
-    await fs.writeFile(path.join(taskDirectoryPath, originalFilename), buf);
+    const savedFilePaths: string[] = [];
+
+    // LOGIC CHANGE: Loop through all files and save them with their directory structure
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const relativePath = filePaths[i];
+
+      // Sanitize the relative path to prevent directory traversal attacks
+      const safeRelativePath = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
+      if (safeRelativePath.includes('..')) continue; // Skip potentially malicious paths
+      
+      const destinationPath = path.join(taskDirectoryPath, safeRelativePath);
+      
+      // Ensure the sub-directory exists before writing the file
+      await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+
+      const buf = Buffer.from(await file.arrayBuffer());
+      await fs.writeFile(destinationPath, buf);
+      savedFilePaths.push(safeRelativePath);
+    }
 
     const newTask: Task = {
       id: taskId,
-      columnId: START_COLUMN_ID, // Assign to the starting column
+      columnId: START_COLUMN_ID,
       customerName: customerName.trim(),
       representative: representative.trim(),
       orderDate: orderDate.trim(),
       notes: notes.trim(),
       taskFolderPath: `/storage/tasks/${taskId}`,
-      files: [originalFilename],
+      // Store the array of relative file paths
+      files: savedFilePaths,
     };
 
     const boardData = await getBoardData();
 
-    // Add the new task to the tasks lookup
     boardData.tasks[taskId] = newTask;
-
-    // Add the new task ID to the start column's taskIds array
     const startCol = boardData.columns.find((c) => c.id === START_COLUMN_ID);
     if (startCol) {
       startCol.taskIds.push(taskId);
     } else {
-      // Fallback: add to the first column if start column not found
       boardData.columns[0].taskIds.push(taskId);
     }
 
@@ -93,7 +107,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PUT: Updates the entire board state (used for drag & drop)
+// PUT: Updates the entire board state (used for drag & drop, no changes)
 export async function PUT(req: NextRequest) {
   try {
     const boardData = (await req.json()) as BoardData;

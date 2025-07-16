@@ -1,8 +1,9 @@
+// file: components/CreateJobForm.tsx
 "use client";
 
 import type { Task } from "@/types";
 import { useState, useRef } from "react";
-import { Paperclip, PlusCircle, Loader2 } from "lucide-react";
+import { Folder, PlusCircle, Loader2 } from "lucide-react"; // Changed icon
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -11,7 +12,8 @@ interface CreateJobFormProps {
 }
 
 export default function CreateJobForm({ onJobCreated }: CreateJobFormProps) {
-  const [file, setFile] = useState<File | null>(null);
+  // STATE CHANGE: from single File to FileList for folder contents
+  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [representative, setRepresentative] = useState("");
   const [orderDate, setOrderDate] = useState("");
@@ -19,13 +21,38 @@ export default function CreateJobForm({ onJobCreated }: CreateJobFormProps) {
   const [isCreating, setIsCreating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // HELPER: To get the root folder name from the FileList
+  const getFolderName = (): string => {
+    if (!selectedFiles || selectedFiles.length === 0) {
+      return "上传文件夹";
+    }
+    // webkitRelativePath is like "FolderName/file.txt". We extract "FolderName".
+    const firstPath = (selectedFiles[0] as any).webkitRelativePath || "";
+    return firstPath.split("/")[0] || "已选文件夹";
+  };
+
   const handleCreateJob = async () => {
-    if (!file || !customerName.trim() || !representative.trim() || !orderDate.trim()) return;
+    // VALIDATION CHANGE: Check for selectedFiles list
+    if (
+      !selectedFiles ||
+      selectedFiles.length === 0 ||
+      !customerName.trim() ||
+      !representative.trim() ||
+      !orderDate.trim()
+    )
+      return;
 
     setIsCreating(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      
+      // LOGIC CHANGE: Append all files and their relative paths
+      for (const file of Array.from(selectedFiles)) {
+        formData.append("files", file);
+        // The 'webkitRelativePath' property is key for reconstructing the folder structure
+        formData.append("filePaths", (file as any).webkitRelativePath);
+      }
+      
       formData.append("customerName", customerName.trim());
       formData.append("representative", representative.trim());
       formData.append("orderDate", orderDate.trim());
@@ -41,7 +68,8 @@ export default function CreateJobForm({ onJobCreated }: CreateJobFormProps) {
       const newTask: Task = await res.json();
       onJobCreated(newTask);
 
-      setFile(null);
+      // RESET STATE
+      setSelectedFiles(null);
       setCustomerName("");
       setRepresentative("");
       setOrderDate("");
@@ -65,21 +93,28 @@ export default function CreateJobForm({ onJobCreated }: CreateJobFormProps) {
 
       <div className="w-full space-y-3">
         <label
-          htmlFor="fileUpload"
+          htmlFor="folderUpload"
           className="flex items-center justify-between w-full rounded-lg bg-neutral-100 hover:bg-neutral-200/70 transition-colors cursor-pointer px-3 py-2.5"
         >
           <div className="flex items-center gap-2 truncate">
-            <Paperclip className="h-4 w-4 text-neutral-400 flex-shrink-0" />
-            <span className={`text-sm truncate ${file ? "text-neutral-700 font-medium" : "text-neutral-500"}`}>
-              {file ? file.name : "上传文件"}
+            <Folder className="h-4 w-4 text-neutral-400 flex-shrink-0" />
+            <span
+              className={`text-sm truncate ${
+                selectedFiles ? "text-neutral-700 font-medium" : "text-neutral-500"
+              }`}
+            >
+              {getFolderName()}
             </span>
           </div>
           <input
-            id="fileUpload"
+            id="folderUpload"
             ref={fileInputRef}
             type="file"
+            // ATTRIBUTE CHANGE: These enable folder selection
+            webkitdirectory=""
+            directory=""
             className="hidden"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => setSelectedFiles(e.target.files)}
           />
         </label>
 
@@ -113,7 +148,14 @@ export default function CreateJobForm({ onJobCreated }: CreateJobFormProps) {
       <Button
         onClick={handleCreateJob}
         className="w-full bg-neutral-800 hover:bg-neutral-900 text-white font-semibold py-2.5 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:bg-neutral-800/40 disabled:shadow-none disabled:cursor-not-allowed"
-        disabled={!file || !customerName || !representative || !orderDate || isCreating}
+        disabled={
+          !selectedFiles ||
+          selectedFiles.length === 0 ||
+          !customerName ||
+          !representative ||
+          !orderDate ||
+          isCreating
+        }
       >
         {isCreating ? <Loader2 className="h-5 w-5 animate-spin" /> : "创建任务"}
       </Button>

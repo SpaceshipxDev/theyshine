@@ -1,4 +1,3 @@
-// components/SearchDialog.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -28,6 +27,15 @@ export default function SearchDialog({ isOpen, onClose, onTaskSelect }: SearchDi
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Clear search state whenever the dialog closes
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchQuery("");
+      setResults([]);
+      setIsLoading(false);
+    }
+  }, [isOpen]);
 
   // Focus input and add Escape key listener when dialog opens
   useEffect(() => {
@@ -76,30 +84,23 @@ export default function SearchDialog({ isOpen, onClose, onTaskSelect }: SearchDi
     onTaskSelect(task);
   };
 
-  // Render nothing if not open or not mounted on the client
   if (!isOpen || !isMounted) {
     return null;
   }
 
-  // Use a portal to render the dialog at the top level of the DOM
   return createPortal(
-    // 1. OVERLAY: Semi-transparent, blurred background. Clicking it closes the dialog.
     <div
       className="fixed inset-0 bg-black/10 backdrop-blur-sm z-50 flex justify-center items-start"
       onClick={onClose}
     >
-      {/* 2. CONTENT: The main dialog window. Clicks inside are stopped from closing the dialog. */}
       <div
-        // Light mode glassmorphism styles
         className="w-[95vw] max-w-2xl mt-[20vh] bg-white/75 backdrop-blur-2xl border border-gray-200/80 
                    rounded-2xl shadow-2xl flex flex-col overflow-hidden
                    animate-in fade-in-0 zoom-in-95 duration-300"
-        // Positioning is handled by flexbox on the overlay and margin-top here (`mt-[15vh]` is similar to top-1/3)
-        onClick={(e) => e.stopPropagation()} // Prevents clicks inside from closing the modal
+        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
       >
-        {/* Search Input Area */}
         <div className="flex items-center gap-4 p-4 border-b border-black/10">
           <Search className="h-5 w-5 text-gray-500 flex-shrink-0" strokeWidth={2} />
           <input
@@ -119,7 +120,6 @@ export default function SearchDialog({ isOpen, onClose, onTaskSelect }: SearchDi
           </button>
         </div>
 
-        {/* Results Area */}
         <div className="p-2 min-h-[200px] max-h-[60vh] overflow-y-auto">
           {searchQuery.trim() === "" && (
             <div className="flex flex-col items-center justify-center text-center p-12 text-gray-500 h-full">
@@ -166,6 +166,6 @@ export default function SearchDialog({ isOpen, onClose, onTaskSelect }: SearchDi
         </div>
       </div>
     </div>,
-    document.body // Render into the body tag
+    document.body
   );
 }
