@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import type { BoardData, Task } from "@/types";
+import type { BoardData } from "@/types";
 
 // --- Path Definitions ---
 const STORAGE_DIR = path.join(process.cwd(), "public", "storage");
@@ -31,25 +31,33 @@ export async function POST(
     const taskDirectoryPath = path.join(TASKS_STORAGE_DIR, taskId);
     await fs.mkdir(taskDirectoryPath, { recursive: true });
 
+    const newlyAddedFiles: string[] = [];
+
     for (const file of files) {
+      // --- FIX: Use a less restrictive regex that allows Unicode characters ---
+      const sanitizedFilename = file.name.replace(/[\\/:*?"<>|]/g, '_');
+      // ----------------------------------------------------------------------
+
+      const filePath = path.join(taskDirectoryPath, sanitizedFilename);
       const buf = Buffer.from(await file.arrayBuffer());
-      const filePath = path.join(taskDirectoryPath, file.name.replace(/[^\w.]/g, "_"));
       await fs.writeFile(filePath, buf);
+      newlyAddedFiles.push(sanitizedFilename);
     }
 
     const rawMeta = await fs.readFile(META_FILE, "utf-8");
     const boardData: BoardData = JSON.parse(rawMeta);
 
-    // Direct lookup - much faster!
     const taskToUpdate = boardData.tasks[taskId];
-
     if (!taskToUpdate) {
       throw new Error("Task not found in metadata");
     }
 
-    // Update file list by re-reading the directory
-    const updatedFileList = await fs.readdir(taskDirectoryPath);
-    taskToUpdate.files = updatedFileList;
+    // --- IMPROVEMENT: Append new files instead of re-reading the directory ---
+    if (!taskToUpdate.files) {
+      taskToUpdate.files = [];
+    }
+    taskToUpdate.files.push(...newlyAddedFiles);
+    // ----------------------------------------------------------------------
 
     await fs.writeFile(META_FILE, JSON.stringify(boardData, null, 2));
 

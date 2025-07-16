@@ -1,16 +1,28 @@
 {
   "tasks": {
-    "1752646331567": {
-      "id": "1752646331567",
+    "1752649107034": {
+      "id": "1752649107034",
       "columnId": "quote",
+      "customerName": "海康",
+      "representative": "Harry",
+      "orderDate": "07-16",
+      "notes": "",
+      "taskFolderPath": "/storage/tasks/1752649107034",
+      "files": [
+        "YNMX-25-7-05-068",
+        "手板报价模板_412510796033 (2).xlsx"
+      ]
+    },
+    "1752649190157": {
+      "id": "1752649190157",
+      "columnId": "create",
       "customerName": "大华",
       "representative": "Harry",
       "orderDate": "07-16",
       "notes": "",
-      "taskFolderPath": "/storage/tasks/1752646331567",
+      "taskFolderPath": "/storage/tasks/1752649190157",
       "files": [
-        "02-竞品吸顶-测试工装-手板",
-        "___.xlsx"
+        "7-3林蔚玮1.2.43.42.18866-000"
       ]
     }
   },
@@ -18,13 +30,15 @@
     {
       "id": "create",
       "title": "建单",
-      "taskIds": []
+      "taskIds": [
+        "1752649190157"
+      ]
     },
     {
       "id": "quote",
       "title": "报价",
       "taskIds": [
-        "1752646331567"
+        "1752649107034"
       ]
     },
     {

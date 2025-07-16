@@ -31,20 +31,30 @@ export async function GET() {
 }
 
 // POST: Creates a new job with folder support
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     
-    // LOGIC CHANGE: Get all files and their relative paths
     const files = formData.getAll("files") as File[];
     const filePaths = formData.getAll("filePaths") as string[];
-    
     const customerName = formData.get("customerName") as string;
     const representative = formData.get("representative") as string;
     const orderDate = formData.get("orderDate") as string;
     const notes = formData.get("notes") as string;
+    
+    // --- ADD THIS LINE ---
+    // Get the folder name sent from the frontend.
+    const folderName = formData.get("folderName") as string;
+    // ---------------------
 
-    if (files.length === 0 || !customerName || !representative || !orderDate) {
+    if (
+      files.length === 0 ||
+      !customerName ||
+      !representative ||
+      !orderDate ||
+      !folderName // Add validation for the folder name
+    ) {
       return NextResponse.json(
         { error: "Missing required fields or folder" },
         { status: 400 }
@@ -55,25 +65,16 @@ export async function POST(req: NextRequest) {
     const taskDirectoryPath = path.join(TASKS_STORAGE_DIR, taskId);
     await fs.mkdir(taskDirectoryPath, { recursive: true });
 
-    const savedFilePaths: string[] = [];
-
-    // LOGIC CHANGE: Loop through all files and save them with their directory structure
+    // This file saving logic is still correct and necessary to build the directory
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const relativePath = filePaths[i];
-
-      // Sanitize the relative path to prevent directory traversal attacks
       const safeRelativePath = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
-      if (safeRelativePath.includes('..')) continue; // Skip potentially malicious paths
-      
+      if (safeRelativePath.includes('..')) continue; 
       const destinationPath = path.join(taskDirectoryPath, safeRelativePath);
-      
-      // Ensure the sub-directory exists before writing the file
       await fs.mkdir(path.dirname(destinationPath), { recursive: true });
-
       const buf = Buffer.from(await file.arrayBuffer());
       await fs.writeFile(destinationPath, buf);
-      savedFilePaths.push(safeRelativePath);
     }
 
     const newTask: Task = {
@@ -84,8 +85,10 @@ export async function POST(req: NextRequest) {
       orderDate: orderDate.trim(),
       notes: notes.trim(),
       taskFolderPath: `/storage/tasks/${taskId}`,
-      // Store the array of relative file paths
-      files: savedFilePaths,
+      // --- CHANGE THIS LINE ---
+      // Instead of the detailed list, just store the root folder name.
+      files: [folderName], 
+      // ------------------------
     };
 
     const boardData = await getBoardData();

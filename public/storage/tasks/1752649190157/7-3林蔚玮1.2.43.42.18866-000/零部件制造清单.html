@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>生产要求</title>
+<style>
+body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;margin:18px;color:#333;}
+h2{margin-top:0;}
+
+/* Table & cells */
+table{width:100%;border-collapse:collapse;table-layout:fixed;border:1px solid #999;}
+th,td{border:1px solid #999;padding:5px 3px;font-size:12px;line-height:1.25;text-align:center;vertical-align:top;word-break:break-word;white-space:pre-line;}
+th{background:#e6f1e8;font-weight:600;white-space:nowrap;}
+
+/* Images */
+td img{max-width:60px;max-height:45px;width:auto;height:auto;display:block;margin:auto;object-fit:contain;background:#fff;}
+
+/* Column widths (≈100%) */
+th:nth-child(1),td:nth-child(1){width:5%;}   /* 序号 */
+th:nth-child(2),td:nth-child(2){width:12%;}  /* 产品图片 */
+th:nth-child(3),td:nth-child(3){width:12%;}  /* 产品名称 */
+th:nth-child(4),td:nth-child(4){width:17%;}  /* 产品路径 */
+th:nth-child(5),td:nth-child(5){width:7%;}   /* 数量 */
+th:nth-child(6),td:nth-child(6){width:9%;}   /* 材料 */
+th:nth-child(7),td:nth-child(7){width:15%;}  /* 加工方式 */
+th:nth-child(8),td:nth-child(8){width:12%;}  /* 表面处理 */
+th:nth-child(9),td:nth-child(9){width:11%;}  /* 备注 */
+
+tbody tr:nth-child(even){background:#fafafa;}
+
+/* Editable cells */
+tbody td{contenteditable:true;spellcheck:false;outline:none;}
+tbody td:focus{background:#fff8d7;box-shadow:inset 0 0 0 1px #ffbf47;}
+
+/* ------- PRINT ------- */
+@media print{
+  @page{size:A4 portrait;margin:10mm;}
+  html,body{margin:0;padding:0;font-size:11px;}
+  table{width:100%;font-size:10.5px;}
+  th,td{padding:2px 2px;font-size:10.5px;}
+  td img{max-width:45px;max-height:30px;}
+  th{-webkit-print-color-adjust:exact;background:#dfeee2!important;}
+  tbody td:focus{background:inherit;box-shadow:none;}
+}
+</style>
+</head>
+<body>
+<h2>生产要求</h2>
+
+<div class="header-info">
+  <h3>订单信息</h3>
+  <div class="info-row">
+    <div class="info-item"><span class="info-label">销售单号:</span> 未填写</div>
+    <div class="info-item"><span class="info-label">交期:</span> 未填写</div>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>序号</th><th>产品图片</th><th>产品名称</th><th>产品路径</th>
+      <th>数量</th><th>材料</th><th>加工方式</th><th>表面处理</th><th>备注</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+    <td>1</td>
+    <td><img src="generated_previews/dh3-rd009090-l001--20250703.png"></td>
+    <td>抛投负载前后壳安装工装</td>
+    <td>打包文件_20250703105148/dh3-rd009090-l001--20250703.stp</td>
+    <td>1</td>
+    <td>透明PC</td>
+    <td>机加</td>
+    <td>无</td>
+    <td></td>
+</tr>
+  </tbody>
+</table>
+
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('tbody td').forEach(td=>td.setAttribute('contenteditable','true'));
+});
+</script>
+</body>
+</html>

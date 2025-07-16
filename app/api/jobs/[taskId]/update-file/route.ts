@@ -28,11 +28,16 @@ export async function POST(
 
     const taskDirectoryPath = path.join(TASKS_STORAGE_DIR, taskId);
     const oldFilePath = path.join(taskDirectoryPath, oldFilename);
-    const sanitizedNewFilename = newFile.name.replace(/[^\w.-]/g, "_");
+
+    // --- FIX: Use a less restrictive regex that allows Unicode characters ---
+    const sanitizedNewFilename = newFile.name.replace(/[\\/:*?"<>|]/g, '_');
+    // ----------------------------------------------------------------------
+    
     const newFilePath = path.join(taskDirectoryPath, sanitizedNewFilename);
 
     await fs.mkdir(taskDirectoryPath, { recursive: true });
 
+    // Try to delete the old file
     try {
       await fs.unlink(oldFilePath);
     } catch (e: any) {
@@ -40,9 +45,11 @@ export async function POST(
       console.warn(`File to be updated not found, proceeding to add new file: ${oldFilePath}`);
     }
 
+    // Write the new file
     const buf = Buffer.from(await newFile.arrayBuffer());
     await fs.writeFile(newFilePath, buf);
 
+    // Update metadata
     const rawMeta = await fs.readFile(META_FILE, "utf-8");
     const boardData: BoardData = JSON.parse(rawMeta);
     const taskToUpdate = boardData.tasks[taskId];
@@ -50,13 +57,13 @@ export async function POST(
       return NextResponse.json({ error: "Task not found in metadata" }, { status: 404 });
     }
 
-    // --- FIX: Replace item in array to preserve order ---
+    // Replace the item in the array to preserve order
     const fileIndex = taskToUpdate.files?.indexOf(oldFilename);
     if (taskToUpdate.files && fileIndex !== undefined && fileIndex > -1) {
       taskToUpdate.files[fileIndex] = sanitizedNewFilename;
     } else {
-      // Fallback if old filename isn't found in the list
-      taskToUpdate.files = (await fs.readdir(taskDirectoryPath));
+      // Fallback: if the old file wasn't in the list, add the new one
+      taskToUpdate.files = [...(taskToUpdate.files || []), sanitizedNewFilename];
     }
 
     await fs.writeFile(META_FILE, JSON.stringify(boardData, null, 2));

@@ -57,6 +57,8 @@ export default function CreateJobForm({ onJobCreated }: CreateJobFormProps) {
       formData.append("representative", representative.trim());
       formData.append("orderDate", orderDate.trim());
       formData.append("notes", notes.trim());
+      formData.append("folderName", getFolderName());
+
 
       const res = await fetch("/api/jobs", {
         method: "POST",
